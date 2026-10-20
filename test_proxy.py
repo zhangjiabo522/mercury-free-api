@@ -273,6 +273,13 @@ def test_responses_non_stream_and_retrieve():
         assert client.get(f"/v1/responses/{body['id']}", headers={"Authorization": "Bearer test-key"}).status_code == 404
 
 
+def test_responses_accepts_include():
+    with TestClient(make_app()) as client:
+        response = responses_request(client, {"include": ["message.output_text.logprobs", "reasoning.encrypted_content"]})
+        assert response.status_code == 200
+        assert response.json()["output"][-1]["type"] == "message"
+
+
 def test_responses_previous_response_and_no_store():
     upstream = FakeUpstream()
     with TestClient(make_app(upstream)) as client:

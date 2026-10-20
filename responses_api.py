@@ -49,6 +49,7 @@ class ResponseRequest(BaseModel):
     tools: list[ResponseFunctionTool] | None = Field(default=None, max_length=128)
     tool_choice: Literal["none", "auto", "required"] | ResponseNamedToolChoice = "auto"
     parallel_tool_calls: bool = True
+    include: list[str] | None = Field(default=None, max_length=20)
 
     def chat(self, store):
         history = []
