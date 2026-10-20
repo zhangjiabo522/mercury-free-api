@@ -201,10 +201,10 @@ class BrowserUpstream:
 
     async def close(self):
         if self.browser:
-            with suppress(BrowserError):
+            with suppress(Exception):
                 await self.browser.close()
         if self.playwright:
-            with suppress(BrowserError):
+            with suppress(Exception):
                 await self.playwright.stop()
         self.page = self.context = self.browser = self.playwright = None
         self.token = None

@@ -262,7 +262,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-当前自动检查共 35 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses 普通与流式、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换和客户端断开清理。
+当前自动检查共 36 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses 普通与流式、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
 
 本地真实联调还验证了：
 

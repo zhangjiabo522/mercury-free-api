@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from protocol import ProxyError, sse_data, translate
 from proxy import create_app, load_key
+from upstream import BrowserUpstream
 
 
 async def fragments(items):
@@ -342,3 +343,23 @@ def test_admin_csrf_and_password_rate_limit(monkeypatch):
         for _ in range(10):
             assert client.post("/api/admin/login", headers={"x-admin-request": "1"}, json={"password": "wrong"}).status_code == 401
         assert client.post("/api/admin/login", headers={"x-admin-request": "1"}, json={"password": "test-admin-password"}).status_code == 429
+
+
+def test_upstream_close_tolerates_closed_browser_transport():
+    class ClosedBrowser:
+        async def close(self):
+            raise RuntimeError("transport closed")
+
+    class ClosedPlaywright:
+        async def stop(self):
+            raise RuntimeError("transport closed")
+
+    async def run():
+        upstream = BrowserUpstream()
+        upstream.browser = ClosedBrowser()
+        upstream.playwright = ClosedPlaywright()
+        await upstream.close()
+        assert upstream.browser is None
+        assert upstream.playwright is None
+
+    asyncio.run(run())
