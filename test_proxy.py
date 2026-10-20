@@ -169,13 +169,10 @@ def test_auth_models_health_and_openapi():
 
 
 @pytest.mark.parametrize("values", [
-    {"model": "invented-model"},
     {"messages": []},
     {"messages": [{"role": "assistant", "content": "你好"}]},
     {"messages": [{"role": "user", "content": " "}]},
-    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}]}]},
     {"stream": "false"},
-    {"n": 2},
 ])
 def test_unsupported_requests(values):
     upstream = FakeUpstream()
@@ -480,9 +477,69 @@ def test_chat_tool_result_continuation_and_choice_none():
 def test_invalid_tools():
     with TestClient(make_app()) as client:
         duplicate = request(client, tools=[WEATHER_TOOL, WEATHER_TOOL])
-        assert duplicate.status_code == 400
+        assert duplicate.status_code == 200
         missing_tool_id = request(client, messages=[{"role": "tool", "content": "结果"}], tools=[WEATHER_TOOL])
         assert missing_tool_id.status_code == 400
+
+
+def test_flexible_model_tools_and_content():
+    tools = [
+        *[{"type": "function", "function": {"name": f"tool_{index}", "parameters": {"type": "object"}}} for index in range(7)],
+        {"type": "web_search_preview"},
+        WEATHER_TOOL,
+        {"type": "function", "function": {"name": "invalid name"}},
+    ]
+    upstream = FakeUpstream([event("text-delta", delta=TOOL_OUTPUT), "data: [DONE]\n\n"])
+    with TestClient(make_app(upstream)) as client:
+        response = request(client,
+            model="gpt-4o",
+            n=2,
+            messages=[{"role": "user", "content": [{"type": "text", "text": "看图"}, {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}]}],
+            tools=tools,
+            tool_choice={"type": "function", "name": "get_weather"},
+        )
+        assert response.status_code == 200
+        assert response.json()["model"] == "gpt-4o"
+        assert "看图" in upstream.payload["messages"][1]["parts"][0]["text"]
+        assert "图片内容未传输" not in upstream.payload["messages"][1]["parts"][0]["text"]
+        assert "get_weather" in upstream.payload["messages"][0]["parts"][0]["text"]
+        assert "invalid name" not in upstream.payload["messages"][0]["parts"][0]["text"]
+
+
+def test_legacy_roles_and_unknown_content_parts():
+    upstream = FakeUpstream()
+    messages = [
+        {"role": "user", "content": [{"type": "custom_part", "data": "ignored"}, "仍然可以处理"]},
+        {"role": "function", "name": "get_weather", "content": '{"temperature":25}'},
+    ]
+    with TestClient(make_app(upstream)) as client:
+        response = request(client, messages=messages, tools=[])
+        assert response.status_code == 200
+        assert [message["role"] for message in upstream.payload["messages"]] == ["user", "user"]
+        assert upstream.payload["messages"][0]["parts"][0]["text"] == "仍然可以处理"
+        assert upstream.payload["messages"][1]["parts"][0]["text"].startswith("[函数结果 name=get_weather]")
+
+
+def test_responses_ignores_unknown_input_and_tool_types():
+    tools = [
+        *[{"type": "function", "name": f"tool_{index}", "parameters": {"type": "object"}} for index in range(7)],
+        {"type": "web_search_preview"},
+        {"type": "function", "name": "get_weather", "parameters": WEATHER_TOOL["function"]["parameters"]},
+        {"type": "mcp", "server_label": "unused"},
+    ]
+    upstream = FakeUpstream()
+    with TestClient(make_app(upstream)) as client:
+        response = responses_tool_request(client, {
+            "model": "custom-model",
+            "tools": tools,
+            "input": [
+                {"type": "item_reference", "id": "ignored"},
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "上海天气"}]},
+            ],
+        })
+        assert response.status_code == 200
+        assert response.json()["model"] == "custom-model"
+        assert response.json()["tools"][-1]["type"] == "function"
 
 
 def responses_tool_request(client, values=None):

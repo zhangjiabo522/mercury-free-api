@@ -65,16 +65,37 @@ class MessageToolCall(BaseModel):
 
 class Message(BaseModel):
     model_config = ConfigDict(extra="allow", strict=True)
-    role: Literal["system", "developer", "user", "assistant", "tool"]
-    content: str | list[TextPart] | None = None
+    role: str = Field(default="user", min_length=1, max_length=64)
+    content: str | list[Any] | None = None
+    refusal: str | None = None
     name: str | None = Field(default=None, max_length=64)
     tool_call_id: str | None = Field(default=None, max_length=256)
     tool_calls: list[MessageToolCall] | None = Field(default=None, max_length=128)
 
     def text(self):
+        if isinstance(self.content, str):
+            return self.content
         if self.content is None:
-            return ""
-        return self.content if isinstance(self.content, str) else "".join(part.text for part in self.content)
+            return self.refusal or ""
+        values = []
+        unsupported = False
+        for part in self.content:
+            if isinstance(part, str):
+                values.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            kind = part.get("type")
+            text = part.get("text")
+            if kind in {"text", "input_text", "output_text"} and isinstance(text, str):
+                values.append(text)
+            elif kind in {"image_url", "input_image", "image"}:
+                unsupported = True
+            elif kind in {"file", "input_file"}:
+                unsupported = True
+        if unsupported and not values:
+            values.append("[用户提供了图片或文件，当前代理仅处理文本]")
+        return "".join(values)
 
     def history_text(self):
         value = self.text()
@@ -91,15 +112,15 @@ class StreamOptions(BaseModel):
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="allow", strict=True)
-    model: Literal["mercury-3", "mercury"] = "mercury-3"
+    model: str = Field(default="mercury-3", min_length=1, max_length=128)
     messages: list[Message] = Field(min_length=1, max_length=500)
     stream: bool = False
     stream_options: StreamOptions | None = None
     reasoning_effort: Literal["none", "instant", "low", "medium", "high"] = "medium"
     web_search: bool = False
-    n: Literal[1] = 1
-    tools: list[FunctionTool] | None = Field(default=None, max_length=128)
-    tool_choice: Literal["none", "auto", "required"] | NamedToolChoice = "auto"
+    n: int = 1
+    tools: list[Any] | None = Field(default=None, max_length=128)
+    tool_choice: str | dict[str, Any] | None = "auto"
     parallel_tool_calls: bool = True
 
     @model_validator(mode="after")
@@ -111,35 +132,64 @@ class ChatRequest(BaseModel):
                 raise ValueError("该角色的消息必须包含 content")
             if message.role == "assistant" and not message.text() and not message.tool_calls:
                 raise ValueError("助手消息必须包含文字或工具调用")
-            if message.tool_calls and message.role != "assistant":
-                raise ValueError("只有助手消息可以包含 tool_calls")
         if sum(len(message.history_text()) for message in self.messages) > 200000:
             raise ValueError("对话总长度不能超过 200000 个字符")
         if not any(message.role == "user" and message.text().strip() for message in self.messages):
             raise ValueError("至少需要一条非空的用户消息")
-        if self.messages[-1].role not in {"user", "tool"}:
-            raise ValueError("最后一条消息必须来自用户或工具结果")
-        if self.tools is not None:
-            names = [tool.function.name for tool in self.tools]
-            if len(names) != len(set(names)):
-                raise ValueError("工具名称不能重复")
         return self
+
+    def normalized_tools(self):
+        result = []
+        seen = set()
+        for raw in self.tools or []:
+            if not isinstance(raw, dict):
+                continue
+            kind = raw.get("type")
+            function = raw.get("function") if isinstance(raw.get("function"), dict) else raw
+            if kind not in {None, "function"} or not isinstance(function, dict):
+                continue
+            try:
+                tool = FunctionTool(type="function", function={"name": function.get("name"), "description": function.get("description", ""), "parameters": function.get("parameters", {"type": "object", "properties": {}}), "strict": function.get("strict")})
+            except Exception:
+                continue
+            if tool.function.name in seen:
+                continue
+            seen.add(tool.function.name)
+            result.append(tool)
+        return result
+
+    @property
+    def tool_mode(self):
+        if isinstance(self.tool_choice, str) and self.tool_choice in {"none", "auto", "required"}:
+            return self.tool_choice
+        return "auto"
+
+    @property
+    def forced_tool_name(self):
+        if not isinstance(self.tool_choice, dict):
+            return None
+        name = self.tool_choice.get("name")
+        function = self.tool_choice.get("function")
+        if not isinstance(name, str) and isinstance(function, dict):
+            name = function.get("name")
+        names = {tool.function.name for tool in self.normalized_tools()}
+        return name if isinstance(name, str) and name in names else None
 
     @property
     def active_tools(self):
-        return bool(self.tools) and self.tool_choice != "none"
+        return bool(self.normalized_tools()) and self.tool_mode != "none"
 
     def tool_prompt(self):
         if not self.active_tools:
             return None
-        definitions = [tool.function.model_dump(exclude_none=True) for tool in self.tools]
+        definitions = [tool.function.model_dump(exclude_none=True) for tool in self.normalized_tools()]
         first = definitions[0]
         properties = first.get("parameters", {}).get("properties", {})
         example_arguments = {name: "..." for name in properties}
         example = json.dumps({"tool_calls": [{"name": first["name"], "arguments": example_arguments}]}, ensure_ascii=False, separators=(",", ":"))
-        if isinstance(self.tool_choice, NamedToolChoice):
-            choice = f"本次必须调用函数 {self.tool_choice.function.name}。"
-        elif self.tool_choice == "required":
+        if self.forced_tool_name:
+            choice = f"本次必须调用函数 {self.forced_tool_name}。"
+        elif self.tool_mode == "required":
             choice = "本次必须至少调用一个函数。"
         else:
             choice = "只在确实需要外部数据或操作时调用函数。"
@@ -170,6 +220,11 @@ class ChatRequest(BaseModel):
             if message.role == "tool":
                 role = "user"
                 text = f"[工具结果 tool_call_id={message.tool_call_id}]\n{text}"
+            elif message.role == "function":
+                role = "user"
+                text = f"[函数结果 name={message.name or 'unknown'}]\n{text}"
+            elif role not in {"system", "user", "assistant"}:
+                role = "user"
             messages.append({"id": uuid.uuid4().hex, "role": role, "parts": [{"type": "text", "text": text}]})
         return messages
 

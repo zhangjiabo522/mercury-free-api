@@ -3,7 +3,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
-from protocol import ChatRequest, NamedToolChoice, ProxyError
+from protocol import ChatRequest, ProxyError
 
 
 @dataclass
@@ -84,7 +84,7 @@ def _payload(entries):
 def parse_tool_output(text, request: ChatRequest):
     if not request.active_tools:
         return ParsedOutput(text, [])
-    names = {tool.function.name for tool in request.tools}
+    names = {tool.function.name for tool in request.normalized_tools()}
     patterns = [
         r"<tool_calls>\s*(.*?)\s*</tool_calls>",
         r"<\|\s*tool_calls\s*\|>\s*(.*?)\s*<\|\s*/\s*tool_calls\s*\|>",
@@ -113,15 +113,15 @@ def parse_tool_output(text, request: ChatRequest):
             except (json.JSONDecodeError, TypeError):
                 entries = []
     entries = [entry for entry in entries if entry[0] in names]
-    if isinstance(request.tool_choice, NamedToolChoice):
-        entries = [entry for entry in entries if entry[0] == request.tool_choice.function.name]
+    if request.forced_tool_name:
+        entries = [entry for entry in entries if entry[0] == request.forced_tool_name]
     if not request.parallel_tool_calls:
         entries = entries[:1]
     calls = [ToolInvocation("call_" + uuid.uuid4().hex, name, arguments_text, arguments) for name, arguments, arguments_text in entries]
-    if request.tool_choice == "required" and not calls:
+    if request.tool_mode == "required" and not calls:
         raise ProxyError("模型没有按要求返回工具调用", code="tool_call_required_missing")
-    if isinstance(request.tool_choice, NamedToolChoice) and not calls:
-        raise ProxyError(f"模型没有按要求调用函数 {request.tool_choice.function.name}", code="tool_call_required_missing")
+    if request.forced_tool_name and not calls:
+        raise ProxyError(f"模型没有按要求调用函数 {request.forced_tool_name}", code="tool_call_required_missing")
     content = text
     for match in matches:
         content = content.replace(match.group(0), "")

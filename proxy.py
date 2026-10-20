@@ -63,11 +63,13 @@ def invalid_request(exc):
     first = exc.errors(include_input=False, include_url=False)[0]
     field = ".".join(str(part) for part in first["loc"])
     if first["type"] == "extra_forbidden":
-        message = f"当前网页接口不支持参数：{field}，请删除后重试"
+        message = f"参数 {field} 不在预期结构中"
+    elif first["type"] == "missing":
+        message = f"缺少必填参数：{field}"
     elif first["type"] == "value_error":
         message = str(first.get("ctx", {}).get("error", "请求内容不正确"))
     else:
-        message = f"参数格式不正确：{field or '请求体'}，仅支持 mercury-3 模型和文本消息"
+        message = f"参数 {field or '请求体'} 的值类型不正确"
     raise ProxyError(message, 400, "invalid_request", param=field or None) from exc
 
 

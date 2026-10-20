@@ -12,6 +12,7 @@
 - 普通回复、流式 SSE、多轮对话、思考内容
 - Chat Completions 与 Responses 函数工具调用，支持工具结果回传
 - 兼容常见 OpenAI 客户端可选参数，不再因 `prompt_cache_key`、`include` 等字段拒绝请求
+- 宽松兼容模型别名、消息内容组件、内置工具和多种 `tool_choice` 写法
 - Responses 的创建、读取、删除、输入列表、`include` 参数及 `previous_response_id` 接续
 - 中文 Web 控制台，查看今日输入 token、输出 token、平均完整响应时间、首字时间、成功率和请求记录
 - 本地估算 token 用量，按 `Asia/Shanghai` 时区切分自然日
@@ -85,7 +86,7 @@ python -m playwright install --with-deps chromium
 | API Key | `data/proxy-key.txt` 或控制台中设置的密钥 |
 | 模型 | `mercury-3` |
 
-`mercury` 是 `mercury-3` 的别名。模型列表固定返回 `mercury-3`。
+`mercury` 是 `mercury-3` 的别名。为了兼容第三方客户端，其他模型名称也会被接受，但实际仍路由到网页当前的 Mercury 3。模型列表固定返回 `mercury-3`。
 
 Chat Completions 普通回复：
 
@@ -252,6 +253,8 @@ print(final.output_text)
 
 支持 `tool_choice` 的 `none`、`auto`、`required` 和指定函数，支持 `parallel_tool_calls`。Chat 流式响应输出标准 `delta.tool_calls`；Responses 流式响应输出 `response.function_call_arguments.delta` 与完成事件。
 
+`tools` 中无法由网页执行的内置工具类型会被忽略，`function` 工具仍会正常工作。工具定义缺字段、类型未知或名称无法转换时不会导致整个请求报错。
+
 请求传入工具时，代理需要等模型完整返回后才能可靠判断是否形成工具调用，因此正文会在生成完成后通过 SSE 分段发送。没有传入工具时仍保持实时流式输出。
 
 ## 接口范围
@@ -275,7 +278,7 @@ Responses 接受官方客户端的 `include` 参数。网页没有对数概率�
 
 思考文字在 Chat Completions 中位于 `reasoning_content`，在 Responses 中作为 reasoning 输出项及 `response.reasoning_summary_text.delta` 事件返回。
 
-当前仅处理文本与函数工具。图片、文件上传、嵌入向量尚未支持。`prompt_cache_key`、`temperature`、`top_p`、`max_tokens`、`max_output_tokens`、`stop`、`seed`、`service_tier`、`user`、`truncation`、`background`、`safety_identifier` 等常见客户端参数会被接受。网页无法实现的部分不会改变上游生成，也不会再返回“不支持参数”的错误。模型名称、消息结构等无效内容仍会返回 400。
+当前仅处理文本与函数工具。图片、文件内容会保留请求兼容性，但实际图像和文件数据不会发送给网页；嵌入向量尚未支持。`prompt_cache_key`、`temperature`、`top_p`、`max_tokens`、`max_output_tokens`、`stop`、`seed`、`service_tier`、`user`、`truncation`、`background`、`safety_identifier` 等常见客户端参数会被接受。网页无法实现的部分不会改变上游生成，也不会再返回“不支持参数”的错误。缺失消息等真正无法处理的请求仍会返回 400。
 
 ## 统计口径
 
@@ -353,7 +356,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-当前自动检查共 44 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses、常见可选参数兼容、函数工具调用与结果回传、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
+当前自动检查共 44 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses、常见可选参数、模型别名、混合工具类型、消息组件与旧版函数角色兼容、函数工具调用与结果回传、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
 
 本地真实联调还验证了：
 

@@ -1,11 +1,11 @@
 import json
 import time
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from protocol import ChatRequest, FunctionTool, Message, NamedToolChoice, ProxyError, ToolChoiceName
+from protocol import ChatRequest, Message, ProxyError
 
 
 class ReasoningOptions(BaseModel):
@@ -37,8 +37,8 @@ class ResponseNamedToolChoice(BaseModel):
 
 class ResponseRequest(BaseModel):
     model_config = ConfigDict(extra="allow", strict=True)
-    model: Literal["mercury-3", "mercury"] = "mercury-3"
-    input: str | list[dict] = Field(default_factory=list)
+    model: str = Field(default="mercury-3", min_length=1, max_length=128)
+    input: str | list[Any] = Field(default_factory=list)
     instructions: str | None = Field(default=None, max_length=200000)
     previous_response_id: str | None = None
     stream: bool = False
@@ -46,8 +46,8 @@ class ResponseRequest(BaseModel):
     reasoning: ReasoningOptions | None = None
     web_search: bool | None = None
     metadata: dict[str, str] = Field(default_factory=dict, max_length=16)
-    tools: list[ResponseFunctionTool] | None = Field(default=None, max_length=128)
-    tool_choice: Literal["none", "auto", "required"] | ResponseNamedToolChoice = "auto"
+    tools: list[Any] | None = Field(default=None, max_length=128)
+    tool_choice: str | dict[str, Any] | None = "auto"
     parallel_tool_calls: bool = True
     include: list[str] | None = Field(default=None, max_length=20)
 
@@ -60,6 +60,8 @@ class ResponseRequest(BaseModel):
         incoming = [{"role": "user", "content": self.input}] if isinstance(self.input, str) else self.input
         converted = []
         for item in incoming:
+            if not isinstance(item, dict):
+                continue
             kind = item.get("type", "message")
             if kind == "reasoning" and "encrypted_content" not in item:
                 continue
@@ -72,35 +74,23 @@ class ResponseRequest(BaseModel):
                 converted.append(Message(role="tool", tool_call_id=item.get("call_id"), content=output))
                 continue
             if kind == "function_call":
-                converted.append(Message(role="assistant", content=None, tool_calls=[{"id": item.get("call_id"), "type": "function", "function": {"name": item.get("name"), "arguments": item.get("arguments", "{}")}}]))
+                if item.get("call_id") and item.get("name"):
+                    converted.append(Message(role="assistant", content=None, tool_calls=[{"id": item.get("call_id"), "type": "function", "function": {"name": item.get("name"), "arguments": item.get("arguments", "{}")}}]))
                 continue
             if kind != "message":
-                raise ProxyError("Responses 输入目前只支持文本消息、函数调用和函数结果", 400, "unsupported_input")
+                continue
             content = item.get("content")
-            if isinstance(content, list):
-                values = []
-                for part in content:
-                    if not isinstance(part, dict) or part.get("type") not in {"input_text", "output_text", "text"} or not isinstance(part.get("text"), str):
-                        raise ProxyError("Responses 输入目前只支持文本内容", 400, "unsupported_input")
-                    values.append(part["text"])
-                content = "".join(values)
-            converted.append(Message.model_validate({"role": item.get("role"), "content": content}))
+            message = Message.model_validate({"role": item.get("role"), "content": content})
+            if not message.text().strip() and message.role in {"user", "system", "developer"}:
+                continue
+            converted.append(message)
         history = history + [message.model_dump() for message in converted]
         messages = [Message.model_validate(item) for item in history]
         if self.instructions:
             messages.insert(0, Message(role="system", content=self.instructions))
         effort = self.reasoning.effort if self.reasoning and self.reasoning.effort else store.get("reasoning_effort")
         search = self.web_search if self.web_search is not None else store.get("web_search") == "true"
-        tools = None
-        if self.tools is not None:
-            tools = [FunctionTool(type="function", function={"name": tool.name, "description": tool.description, "parameters": tool.parameters, "strict": tool.strict}).model_dump(exclude_none=True) for tool in self.tools]
-        choice = self.tool_choice
-        if isinstance(choice, ResponseNamedToolChoice):
-            name = choice.name or (choice.function.name if choice.function else None)
-            if not name:
-                raise ProxyError("tool_choice 必须指定函数名称", 400, "invalid_tool_choice")
-            choice = NamedToolChoice(type="function", function=ToolChoiceName(name=name))
-        chat = ChatRequest(model=self.model, messages=messages, stream=self.stream, reasoning_effort=effort, web_search=search, tools=tools, tool_choice=choice, parallel_tool_calls=self.parallel_tool_calls)
+        chat = ChatRequest(model=self.model, messages=messages, stream=self.stream, reasoning_effort=effort, web_search=search, tools=self.tools, tool_choice=self.tool_choice, parallel_tool_calls=self.parallel_tool_calls)
         return chat, history
 
 
@@ -135,14 +125,14 @@ class ResponseBuilder:
         if status == "completed" and self.run.finish_reason in {"length", "content_filter"}:
             status = "incomplete"
             reason = "max_output_tokens" if self.run.finish_reason == "length" else "content_filter"
-        choice = self.request.tool_choice.model_dump(exclude_none=True) if isinstance(self.request.tool_choice, ResponseNamedToolChoice) else self.request.tool_choice
+        tools = [tool for tool in self.request.tools or [] if isinstance(tool, dict) and tool.get("type") in {None, "function"}]
         return {
             "id": self.id, "object": "response", "created_at": self.created, "status": status,
             "error": error, "incomplete_details": {"reason": reason} if reason else None,
             "model": self.request.model, "output": output, "instructions": self.request.instructions,
             "previous_response_id": self.request.previous_response_id, "store": self.request.store,
             "reasoning": {"effort": self.run.payload.reasoning_effort, "summary": self.request.reasoning.summary if self.request.reasoning else None},
-            "text": {"format": {"type": "text"}}, "tools": [tool.model_dump(exclude_none=True) for tool in self.request.tools or []], "tool_choice": choice, "parallel_tool_calls": self.request.parallel_tool_calls,
+            "text": {"format": {"type": "text"}}, "tools": tools, "tool_choice": self.request.tool_choice, "parallel_tool_calls": self.request.parallel_tool_calls,
             "metadata": self.request.metadata, "usage": self.run.response_usage() if status not in {"in_progress", "queued"} else None,
             "usage_estimated": True, "usage_method": "cl100k_base",
         }
