@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#142019">
+  <title>Mercury 控制台</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="login-shell" id="login-view" hidden>
+    <main class="login-layout">
+      <section class="login-intro" aria-labelledby="login-title">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M7 24V8l9 9 9-9v16" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/></svg>
+        </div>
+        <div>
+          <p class="login-product">MERCURY / 本地接口台</p>
+          <h1 id="login-title">把每次对话<br>变成看得见的数据。</h1>
+          <p class="login-copy">查看今天消耗了多少 token、请求花了多久，并在一处管理接口密钥。</p>
+        </div>
+        <div class="login-signal" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </section>
+      <section class="login-panel" aria-label="管理员登录">
+        <form class="login-form" id="login-form">
+          <div>
+            <p class="form-index">控制台访问</p>
+            <h2>输入管理密码</h2>
+            <p>初始密码保存在本机的 <code>data/admin-password.txt</code>。</p>
+          </div>
+          <label class="field">
+            <span>管理密码</span>
+            <span class="input-wrap">
+              <input id="login-password" name="password" type="password" autocomplete="current-password" autofocus required>
+              <button class="icon-button" type="button" data-toggle-password="login-password" aria-label="显示管理密码">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.7" stroke="currentColor" stroke-width="1.7"/></svg>
+              </button>
+            </span>
+          </label>
+          <p class="form-error" id="login-error" role="alert"></p>
+          <button class="button button-primary button-wide" type="submit"><span>进入控制台</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg></button>
+          <p class="login-footnote">密码只用于本机控制台，不会发送给 Inception。</p>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div class="app-shell" id="app-view" hidden>
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <a class="brand" href="/admin" aria-label="Mercury 控制台首页">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M7 24V8l9 9 9-9v16" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/></svg></span>
+          <span><strong>Mercury</strong><small>本地接口台</small></span>
+        </a>
+        <nav class="nav" aria-label="控制台导航">
+          <button class="nav-item active" type="button" data-page="overview">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v10h-6zM4 14h6v6H4zM14 18h6v2h-6z" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span>运行概览</span>
+          </button>
+          <button class="nav-item" type="button" data-page="settings">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L14.5 3h-5L9 6a8 8 0 0 0-1.7 1L4.8 6l-2 3.4L5 11a7 7 0 0 0 0 2l-2.2 1.6 2 3.4 2.5-1a8 8 0 0 0 1.7 1l.5 3h5l.2-3a8 8 0 0 0 1.7-1l2.5 1 2-3.4L17 13a7 7 0 0 0 .1-1Z" stroke="currentColor" stroke-width="1.5"/></svg>
+            <span>接口设置</span>
+          </button>
+        </nav>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="service-state">
+          <span class="status-dot" id="sidebar-status-dot"></span>
+          <span><strong id="sidebar-status">服务运行中</strong><small id="sidebar-status-note">浏览器尚未启动</small></span>
+        </div>
+        <button class="logout-button" id="logout-button" type="button">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 5H5v14h5m5-4 4-3-4-3m4 3H9" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg>
+          退出控制台
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="mobile-brand">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M7 24V8l9 9 9-9v16" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/></svg></span>
+          <strong>Mercury</strong>
+        </div>
+        <div class="page-identity">
+          <p id="page-kicker">运行概览</p>
+          <span class="freshness"><span class="live-dot"></span><span id="freshness-text">正在读取</span></span>
+        </div>
+        <div class="topbar-actions">
+          <label class="date-control">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5h14v15H5zM8 3v4m8-4v4M5 10h14" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span class="sr-only">选择统计日期</span>
+            <input id="report-date" type="date">
+          </label>
+          <button class="icon-button bordered" id="refresh-button" type="button" aria-label="刷新数据" title="刷新数据">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M19 8a8 8 0 1 0 1 7m-1-7V3m0 5h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg>
+          </button>
+          <div class="avatar" aria-label="管理员">管</div>
+        </div>
+      </header>
+
+      <section class="page active" id="page-overview">
+        <div class="page-heading">
+          <div>
+            <p class="date-line" id="date-line">今天</p>
+            <h1>今天，接口运行得怎么样</h1>
+            <p class="page-subtitle">用量由本地分词器估算，响应时间来自本代理记录。</p>
+          </div>
+          <div class="endpoint-chip">
+            <span class="endpoint-live"></span>
+            <span><small>接口地址</small><strong id="endpoint-address">127.0.0.1:8000</strong></span>
+            <button class="icon-button" type="button" data-copy-endpoint aria-label="复制接口地址" title="复制接口地址">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V5H5v11h3" stroke="currentColor" stroke-width="1.6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <section class="metric-strip" aria-label="今日关键数据">
+          <article class="metric metric-input">
+            <div class="metric-label"><span>输入</span><span class="metric-code">IN</span></div>
+            <p class="metric-value" id="input-tokens">—</p>
+            <p class="metric-note"><span id="input-share">等待数据</span><span class="estimate-tag">估算</span></p>
+          </article>
+          <article class="metric metric-output">
+            <div class="metric-label"><span>输出</span><span class="metric-code">OUT</span></div>
+            <p class="metric-value" id="output-tokens">—</p>
+            <p class="metric-note"><span id="reasoning-tokens">含思考内容</span><span class="estimate-tag">估算</span></p>
+          </article>
+          <article class="metric metric-latency">
+            <div class="metric-label"><span>平均完整响应</span><span class="metric-code">ALL</span></div>
+            <p class="metric-value" id="avg-latency">—</p>
+            <p class="metric-note"><span id="first-token-note">首字时间暂无</span><span id="success-rate" class="success-tag">—</span></p>
+          </article>
+          <article class="metric metric-count">
+            <div class="metric-label"><span>请求总数</span><span class="metric-code">REQ</span></div>
+            <p class="metric-value" id="request-count">—</p>
+            <p class="metric-note"><span id="request-breakdown">等待数据</span><span class="timezone-tag" id="timezone-label">UTC+8</span></p>
+          </article>
+        </section>
+
+        <div class="dashboard-grid">
+          <section class="panel usage-panel" aria-labelledby="usage-title">
+            <div class="panel-heading">
+              <div><h2 id="usage-title">全天用量</h2><p>按小时查看输入与输出 token</p></div>
+              <div class="chart-legend"><span><i class="legend-input"></i>输入</span><span><i class="legend-output"></i>输出</span></div>
+            </div>
+            <div class="chart-wrap" id="usage-chart" aria-label="24 小时 token 用量图"></div>
+          </section>
+
+          <aside class="panel quick-panel" aria-labelledby="quick-title">
+            <div class="panel-heading"><div><h2 id="quick-title">接口入口</h2><p>OpenAI 兼容，使用同一密钥</p></div></div>
+            <div class="endpoint-list">
+              <div class="endpoint-row"><span class="method">POST</span><code>/v1/chat/completions</code><button class="icon-button" type="button" data-copy-path="/v1/chat/completions" aria-label="复制 Chat Completions 地址" title="复制"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V5H5v11h3" stroke="currentColor" stroke-width="1.6"/></svg></button></div>
+              <div class="endpoint-row"><span class="method">POST</span><code>/v1/responses</code><button class="icon-button" type="button" data-copy-path="/v1/responses" aria-label="复制 Responses 地址" title="复制"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V5H5v11h3" stroke="currentColor" stroke-width="1.6"/></svg></button></div>
+              <div class="endpoint-row"><span class="method">GET</span><code>/v1/models</code><button class="icon-button" type="button" data-copy-path="/v1/models" aria-label="复制模型列表地址" title="复制"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V5H5v11h3" stroke="currentColor" stroke-width="1.6"/></svg></button></div>
+            </div>
+            <div class="quick-footer">
+              <span>当前模型</span><strong>mercury-3</strong>
+              <button class="text-button" type="button" data-page-jump="settings">管理密钥 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.7"/></svg></button>
+            </div>
+          </aside>
+        </div>
+
+        <section class="panel requests-panel" aria-labelledby="requests-title">
+          <div class="panel-heading requests-heading">
+            <div><h2 id="requests-title">最近请求</h2><p>完整记录保存在本机，最多每页显示 20 条</p></div>
+            <div class="segmented" role="group" aria-label="筛选请求状态">
+              <button class="active" type="button" data-status="all">全部</button>
+              <button type="button" data-status="success">成功</button>
+              <button type="button" data-status="error">失败</button>
+              <button type="button" data-status="cancelled">已取消</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>时间</th><th>接口</th><th>状态</th><th class="numeric">输入</th><th class="numeric">输出</th><th class="numeric">完成耗时</th><th class="numeric">首字</th><th>方式</th></tr></thead>
+              <tbody id="request-rows"></tbody>
+            </table>
+            <div class="empty-state" id="requests-empty" hidden>
+              <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M6 8h20v18H6zM10 4v8m12-8v8M6 14h20" stroke="currentColor" stroke-width="1.5"/><path d="M11 19h4m-4 4h8" stroke="currentColor" stroke-width="1.5"/></svg>
+              <strong>这一天还没有请求</strong>
+              <span>通过控制台中的任一接口发送对话后，记录会出现在这里。</span>
+            </div>
+          </div>
+          <div class="pagination" id="pagination">
+            <span id="page-info">第 1 页</span>
+            <div><button class="button button-quiet" id="prev-page" type="button">上一页</button><button class="button button-quiet" id="next-page" type="button">下一页</button></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="page" id="page-settings">
+        <div class="page-heading settings-heading">
+          <div>
+            <p class="date-line">接口控制</p>
+            <h1>密钥与默认参数</h1>
+            <p class="page-subtitle">保存后立即生效，正在生成的请求不受影响。</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <section class="panel settings-panel" aria-labelledby="key-title">
+            <div class="section-heading"><span class="section-number">01</span><div><h2 id="key-title">接口密钥</h2><p>客户端把它填在 API Key 中，服务端使用 <code>Authorization: Bearer …</code> 校验。</p></div></div>
+            <label class="field">
+              <span class="field-label-row"><span>当前密钥</span><span class="mask-note">默认隐藏</span></span>
+              <span class="input-wrap key-wrap">
+                <input id="api-key" type="password" spellcheck="false" autocomplete="off" aria-label="接口密钥">
+                <button class="icon-button" type="button" data-toggle-password="api-key" aria-label="显示接口密钥">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.7" stroke="currentColor" stroke-width="1.7"/></svg>
+                </button>
+              </span>
+            </label>
+            <div class="key-actions">
+              <button class="button button-primary" id="save-key" type="button">保存新密钥</button>
+              <button class="button button-secondary" id="copy-key" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V5H5v11h3" stroke="currentColor" stroke-width="1.6"/></svg>复制</button>
+              <button class="button button-quiet" id="generate-key" type="button">重新生成</button>
+            </div>
+            <p class="field-hint">重新生成后，旧密钥会立刻失效。密钥至少 16 个字符。</p>
+          </section>
+
+          <section class="panel settings-panel" aria-labelledby="endpoint-settings-title">
+            <div class="section-heading"><span class="section-number">02</span><div><h2 id="endpoint-settings-title">接入地址</h2><p>OpenAI 客户端使用的 Base URL。Responses 与 Chat Completions 同时可用。</p></div></div>
+            <div class="copy-field">
+              <code id="base-url">http://127.0.0.1:8000/v1</code>
+              <button class="icon-button bordered" type="button" id="copy-base-url" aria-label="复制接口根地址" title="复制接口根地址"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V5H5v11h3" stroke="currentColor" stroke-width="1.6"/></svg></button>
+            </div>
+            <div class="capability-list">
+              <span><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="1.8"/></svg>Chat Completions</span>
+              <span><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="1.8"/></svg>Responses</span>
+              <span><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="1.8"/></svg>流式与多轮</span>
+              <span class="capability-limited"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 5v6m0 3v1" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.5"/></svg>仅文本</span>
+            </div>
+          </section>
+
+          <section class="panel settings-panel" aria-labelledby="defaults-title">
+            <div class="section-heading"><span class="section-number">03</span><div><h2 id="defaults-title">默认参数</h2><p>客户端没有显式传入时使用这些设置。</p></div></div>
+            <div class="form-grid">
+              <label class="field">
+                <span>推理强度</span>
+                <select id="reasoning-effort">
+                  <option value="instant">Instant · 最快</option>
+                  <option value="low">Low · 快速</option>
+                  <option value="medium">Medium · 均衡</option>
+                  <option value="high">High · 深入</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>网站响应超时</span>
+                <span class="input-suffix"><input id="upstream-timeout" type="number" min="10" max="600" step="5"><em>秒</em></span>
+              </label>
+            </div>
+            <label class="switch-row">
+              <span><strong>默认启用网页搜索</strong><small>只在请求没有传 web_search 时生效；可能增加响应时间。</small></span>
+              <input id="web-search" type="checkbox">
+              <span class="switch" aria-hidden="true"></span>
+            </label>
+            <div class="settings-actions"><button class="button button-primary" id="save-settings" type="button">保存默认参数</button><span class="save-note" id="settings-save-note"></span></div>
+          </section>
+
+          <aside class="panel notes-panel" aria-labelledby="notes-title">
+            <div class="panel-heading"><div><h2 id="notes-title">使用说明</h2><p>关于统计和接入</p></div></div>
+            <dl class="notes-list">
+              <div><dt>Token 怎么计算</dt><dd>网站不返回精确用量，本机使用 <code>cl100k_base</code> 分词估算，包含消息结构开销。</dd></div>
+              <div><dt>响应时间包含什么</dt><dd>从代理收到请求到响应完成的总时间，只统计成功请求；首字时间是第一段文字到达的耗时。</dd></div>
+              <div><dt>时区</dt><dd>按 <code id="timezone-setting">Asia/Shanghai</code> 切分自然日，数据保存在本机 SQLite。</dd></div>
+              <div><dt>Responses 接续</dt><dd>使用 <code>previous_response_id</code> 接续已保存的响应；<code>store=false</code> 时不会保存到本机。</dd></div>
+            </dl>
+            <a class="docs-link" href="/docs" target="_blank" rel="noopener">查看完整接口文档 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17 17 7m-7 0h7v7" stroke="currentColor" stroke-width="1.7"/></svg></a>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

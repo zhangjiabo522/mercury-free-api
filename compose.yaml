@@ -1,0 +1,17 @@
+services:
+  inception-proxy:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - proxy-data:/app/data
+    environment:
+      PROXY_HOST: 0.0.0.0
+      MAX_CONCURRENCY: "1"
+      UPSTREAM_TIMEOUT: "180"
+    shm_size: 1gb
+    init: true
+    restart: unless-stopped
+
+volumes:
+  proxy-data:

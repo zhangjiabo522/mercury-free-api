@@ -1,0 +1,11 @@
+*
+!requirements.txt
+!proxy.py
+!protocol.py
+!upstream.py
+!admin.py
+!generation.py
+!responses_api.py
+!storage.py
+!assets
+!static
