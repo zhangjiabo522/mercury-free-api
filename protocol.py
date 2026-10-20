@@ -20,13 +20,13 @@ class ProxyError(Exception):
 
 
 class TextPart(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     type: Literal["text"]
     text: str = Field(max_length=200000)
 
 
 class FunctionDefinition(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
     description: str = Field(default="", max_length=20000)
     parameters: dict[str, Any] = Field(default_factory=lambda: {"type": "object", "properties": {}})
@@ -34,37 +34,37 @@ class FunctionDefinition(BaseModel):
 
 
 class FunctionTool(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     type: Literal["function"]
     function: FunctionDefinition
 
 
 class ToolChoiceName(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class NamedToolChoice(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     type: Literal["function"]
     function: ToolChoiceName
 
 
 class MessageToolFunction(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     name: str = Field(max_length=64)
     arguments: str = Field(max_length=1000000)
 
 
 class MessageToolCall(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     id: str = Field(min_length=1, max_length=256)
     type: Literal["function"] = "function"
     function: MessageToolFunction
 
 
 class Message(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     role: Literal["system", "developer", "user", "assistant", "tool"]
     content: str | list[TextPart] | None = None
     name: str | None = Field(default=None, max_length=64)
@@ -85,12 +85,12 @@ class Message(BaseModel):
 
 
 class StreamOptions(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     include_usage: bool = False
 
 
 class ChatRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     model: Literal["mercury-3", "mercury"] = "mercury-3"
     messages: list[Message] = Field(min_length=1, max_length=500)
     stream: bool = False

@@ -9,13 +9,13 @@ from protocol import ChatRequest, FunctionTool, Message, NamedToolChoice, ProxyE
 
 
 class ReasoningOptions(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     effort: Literal["none", "instant", "low", "medium", "high"] | None = None
     summary: Literal["auto", "concise", "detailed"] | None = None
 
 
 class ResponseFunctionTool(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     type: Literal["function"]
     name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
     description: str = Field(default="", max_length=20000)
@@ -24,19 +24,19 @@ class ResponseFunctionTool(BaseModel):
 
 
 class ResponseToolChoiceName(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class ResponseNamedToolChoice(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     type: Literal["function"]
     name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
     function: ResponseToolChoiceName | None = None
 
 
 class ResponseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="allow", strict=True)
     model: Literal["mercury-3", "mercury"] = "mercury-3"
     input: str | list[dict] = Field(default_factory=list)
     instructions: str | None = Field(default=None, max_length=200000)

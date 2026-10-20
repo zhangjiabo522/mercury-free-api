@@ -11,6 +11,7 @@
 - OpenAI 兼容的 `/v1/chat/completions` 与 `/v1/responses`
 - 普通回复、流式 SSE、多轮对话、思考内容
 - Chat Completions 与 Responses 函数工具调用，支持工具结果回传
+- 兼容常见 OpenAI 客户端可选参数，不再因 `prompt_cache_key`、`include` 等字段拒绝请求
 - Responses 的创建、读取、删除、输入列表、`include` 参数及 `previous_response_id` 接续
 - 中文 Web 控制台，查看今日输入 token、输出 token、平均完整响应时间、首字时间、成功率和请求记录
 - 本地估算 token 用量，按 `Asia/Shanghai` 时区切分自然日
@@ -274,7 +275,7 @@ Responses 接受官方客户端的 `include` 参数。网页没有对数概率�
 
 思考文字在 Chat Completions 中位于 `reasoning_content`，在 Responses 中作为 reasoning 输出项及 `response.reasoning_summary_text.delta` 事件返回。
 
-当前仅处理文本与函数工具。图片、文件上传、嵌入向量、`temperature`、`top_p`、`max_tokens`、`stop` 和 `response_format` 尚未支持。未知请求参数会返回 400，方便客户端发现问题。
+当前仅处理文本与函数工具。图片、文件上传、嵌入向量尚未支持。`prompt_cache_key`、`temperature`、`top_p`、`max_tokens`、`max_output_tokens`、`stop`、`seed`、`service_tier`、`user`、`truncation`、`background`、`safety_identifier` 等常见客户端参数会被接受。网页无法实现的部分不会改变上游生成，也不会再返回“不支持参数”的错误。模型名称、消息结构等无效内容仍会返回 400。
 
 ## 统计口径
 
@@ -352,7 +353,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-当前自动检查共 43 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses、`include` 参数、函数工具调用与结果回传、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
+当前自动检查共 44 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses、常见可选参数兼容、函数工具调用与结果回传、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
 
 本地真实联调还验证了：
 

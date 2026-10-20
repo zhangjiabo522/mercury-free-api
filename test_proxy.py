@@ -174,7 +174,6 @@ def test_auth_models_health_and_openapi():
     {"messages": [{"role": "assistant", "content": "你好"}]},
     {"messages": [{"role": "user", "content": " "}]},
     {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}]}]},
-    {"temperature": 0.2},
     {"stream": "false"},
     {"n": 2},
 ])
@@ -278,6 +277,43 @@ def test_responses_accepts_include():
         response = responses_request(client, {"include": ["message.output_text.logprobs", "reasoning.encrypted_content"]})
         assert response.status_code == 200
         assert response.json()["output"][-1]["type"] == "message"
+
+
+def test_responses_accepts_common_optional_parameters():
+    with TestClient(make_app()) as client:
+        response = responses_request(client, {
+            "prompt_cache_key": "client-cache-key",
+            "max_output_tokens": 200,
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "truncation": "auto",
+            "service_tier": "auto",
+            "background": False,
+            "safety_identifier": "local-user",
+            "max_tool_calls": 4,
+            "text": {"format": {"type": "text"}},
+        })
+        assert response.status_code == 200
+
+
+def test_chat_accepts_common_optional_parameters():
+    with TestClient(make_app()) as client:
+        response = request(client,
+            prompt_cache_key="client-cache-key",
+            temperature=0.2,
+            top_p=0.9,
+            max_tokens=200,
+            max_completion_tokens=200,
+            stop=["结束"],
+            seed=1,
+            frequency_penalty=0.1,
+            presence_penalty=0.1,
+            logprobs=False,
+            top_logprobs=0,
+            service_tier="auto",
+            user="local-user",
+        )
+        assert response.status_code == 200
 
 
 def test_responses_previous_response_and_no_store():
