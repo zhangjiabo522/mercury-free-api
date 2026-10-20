@@ -21,6 +21,8 @@ class Generation:
         self.error_code = None
         self.content = []
         self.reasoning = []
+        self.final_content = None
+        self.tool_calls = []
         self.finish_reason = "stop"
         self.resource = None
         self.events = None

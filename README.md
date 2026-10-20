@@ -10,6 +10,7 @@
 
 - OpenAI 兼容的 `/v1/chat/completions` 与 `/v1/responses`
 - 普通回复、流式 SSE、多轮对话、思考内容
+- Chat Completions 与 Responses 函数工具调用，支持工具结果回传
 - Responses 的创建、读取、删除、输入列表及 `previous_response_id` 接续
 - 中文 Web 控制台，查看今日输入 token、输出 token、平均完整响应时间、首字时间、成功率和请求记录
 - 本地估算 token 用量，按 `Asia/Shanghai` 时区切分自然日
@@ -166,6 +167,92 @@ print(second.output_text)
 
 Chat Completions 多轮对话需要每次传入完整 `messages`。支持 `system`、`developer`、`user` 和 `assistant` 文本消息；`developer` 会转成网页使用的 `system` 消息。
 
+## 工具调用
+
+网页本身没有客户端函数调用协议。代理会把 OpenAI 工具定义转换成受约束的系统提示，解析模型返回的 `<tool_calls>` JSON，再还原成标准 OpenAI 工具调用。
+
+Chat Completions 工具定义：
+
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "查询城市当前天气",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}]
+
+first = client.chat.completions.create(
+    model="mercury-3",
+    messages=[{"role": "user", "content": "北京天气怎么样？"}],
+    tools=tools,
+    tool_choice="auto",
+)
+
+call = first.choices[0].message.tool_calls[0]
+
+messages = [
+    {"role": "user", "content": "北京天气怎么样？"},
+    first.choices[0].message.model_dump(exclude_none=True),
+    {
+        "role": "tool",
+        "tool_call_id": call.id,
+        "content": '{"temperature_c":26,"weather":"晴"}',
+    },
+]
+
+final = client.chat.completions.create(
+    model="mercury-3",
+    messages=messages,
+    tools=tools,
+)
+print(final.choices[0].message.content)
+```
+
+Responses 工具定义使用平铺结构：
+
+```python
+tools = [{
+    "type": "function",
+    "name": "get_weather",
+    "description": "查询城市当前天气",
+    "parameters": {
+        "type": "object",
+        "properties": {"city": {"type": "string"}},
+        "required": ["city"],
+    },
+}]
+
+first = client.responses.create(
+    model="mercury-3",
+    input="上海天气怎么样？",
+    tools=tools,
+)
+
+call = next(item for item in first.output if item.type == "function_call")
+
+final = client.responses.create(
+    model="mercury-3",
+    input=[{
+        "type": "function_call_output",
+        "call_id": call.call_id,
+        "output": '{"temperature_c":29,"weather":"多云"}',
+    }],
+    previous_response_id=first.id,
+    tools=tools,
+)
+print(final.output_text)
+```
+
+支持 `tool_choice` 的 `none`、`auto`、`required` 和指定函数，支持 `parallel_tool_calls`。Chat 流式响应输出标准 `delta.tool_calls`；Responses 流式响应输出 `response.function_call_arguments.delta` 与完成事件。
+
+请求传入工具时，代理需要等模型完整返回后才能可靠判断是否形成工具调用，因此正文会在生成完成后通过 SSE 分段发送。没有传入工具时仍保持实时流式输出。
+
 ## 接口范围
 
 | 接口 | 支持内容 |
@@ -185,7 +272,7 @@ Chat Completions 多轮对话需要每次传入完整 `messages`。支持 `syste
 
 思考文字在 Chat Completions 中位于 `reasoning_content`，在 Responses 中作为 reasoning 输出项及 `response.reasoning_summary_text.delta` 事件返回。
 
-当前仅处理文本。图片、文件上传、客户端工具调用、嵌入向量、`temperature`、`top_p`、`max_tokens`、`stop` 和 `response_format` 尚未支持。未知请求参数会返回 400，方便客户端发现问题。
+当前仅处理文本与函数工具。图片、文件上传、嵌入向量、`temperature`、`top_p`、`max_tokens`、`stop` 和 `response_format` 尚未支持。未知请求参数会返回 400，方便客户端发现问题。
 
 ## 统计口径
 
@@ -245,6 +332,7 @@ Compose 默认只把端口绑定到主机 `127.0.0.1`，数据保存在 `proxy-d
 ├── protocol.py          Chat Completions 数据协议与网站事件转换
 ├── responses_api.py     Responses 请求与流式响应构建
 ├── generation.py        单次生成、用量和耗时记录
+├── tooling.py           工具调用提示解析与结果还原
 ├── storage.py           SQLite、分词估算、管理会话
 ├── admin.py             控制台 API、认证与设置
 ├── static/              控制台 HTML、CSS、JavaScript
@@ -262,12 +350,14 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-当前自动检查共 36 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses 普通与流式、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
+当前自动检查共 42 项，覆盖中文流式拆包、事件转换、Chat Completions、Responses、函数工具调用与结果回传、上下文接续、统计累计、管理登录、CSRF、限流、密钥轮换、客户端断开和已关闭浏览器的退出清理。
 
 本地真实联调还验证了：
 
 - OpenAI Python 客户端调用 Chat Completions
 - OpenAI Python 客户端调用 Responses 普通、流式与 `previous_response_id`
+- Chat Completions 与 Responses 的完整工具调用及工具结果回传
+- Chat 与 Responses 的流式工具调用事件
 - 控制台桌面与 390px 手机布局
 - 管理登录、密钥显示、复制、参数保存与刷新持久化
 

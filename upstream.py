@@ -90,7 +90,7 @@ class BrowserUpstream:
             await self.close()
             try:
                 self.playwright = await async_playwright().start()
-                options = {"headless": os.getenv("BROWSER_HEADLESS", "1").lower() not in {"0", "false", "no"}}
+                options = {"headless": os.getenv("BROWSER_HEADLESS", "1").lower() not in {"0", "false", "no"}, "args": ["--no-proxy-server", "--disable-dev-shm-usage"]}
                 executable = os.getenv("BROWSER_EXECUTABLE_PATH")
                 if executable:
                     options["executable_path"] = executable

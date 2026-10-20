@@ -174,7 +174,6 @@ def test_auth_models_health_and_openapi():
     {"messages": [{"role": "assistant", "content": "你好"}]},
     {"messages": [{"role": "user", "content": " "}]},
     {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}]}]},
-    {"tools": []},
     {"temperature": 0.2},
     {"stream": "false"},
     {"n": 2},
@@ -363,3 +362,119 @@ def test_upstream_close_tolerates_closed_browser_transport():
         assert upstream.playwright is None
 
     asyncio.run(run())
+
+
+WEATHER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "查询城市天气",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}
+
+TOOL_OUTPUT = '<tool_calls>{"tool_calls":[{"name":"get_weather","arguments":{"city":"北京"}}]}</tool_calls>'
+
+
+def test_chat_tool_call_non_stream():
+    upstream = FakeUpstream([event("text-delta", delta=TOOL_OUTPUT), "data: [DONE]\n\n"])
+    with TestClient(make_app(upstream)) as client:
+        response = request(client, messages=[{"role": "user", "content": "北京天气怎么样"}], tools=[WEATHER_TOOL], tool_choice="auto")
+        assert response.status_code == 200
+        body = response.json()
+        message = body["choices"][0]["message"]
+        assert message["content"] is None
+        assert message["tool_calls"][0]["type"] == "function"
+        assert message["tool_calls"][0]["function"]["name"] == "get_weather"
+        assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {"city": "北京"}
+        assert body["choices"][0]["finish_reason"] == "tool_calls"
+        assert "tool_calls" in upstream.payload["messages"][0]["parts"][0]["text"]
+
+
+def test_chat_tool_call_tolerates_nested_markers():
+    nested = '<tool_calls>\n<tool_calls>\n{"tool_calls":[{"name":"get_weather","arguments":{"city":"北京"}}]}\n</tool_calls>'
+    upstream = FakeUpstream([event("text-delta", delta=nested), "data: [DONE]\n\n"])
+    with TestClient(make_app(upstream)) as client:
+        response = request(client, messages=[{"role": "user", "content": "北京天气怎么样"}], tools=[WEATHER_TOOL])
+        assert response.status_code == 200
+        assert response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "get_weather"
+
+
+def test_chat_tool_call_stream():
+    upstream = FakeUpstream([event("text-delta", delta=TOOL_OUTPUT), "data: [DONE]\n\n"])
+    with TestClient(make_app(upstream)) as client:
+        response = request(client, messages=[{"role": "user", "content": "北京天气怎么样"}], tools=[WEATHER_TOOL], stream=True)
+        chunks = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: {")]
+        tool_chunks = [chunk for chunk in chunks if chunk["choices"] and chunk["choices"][0]["delta"].get("tool_calls")]
+        assert tool_chunks[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "get_weather"
+        arguments = "".join(item["choices"][0]["delta"]["tool_calls"][0]["function"].get("arguments", "") for item in tool_chunks)
+        assert json.loads(arguments) == {"city": "北京"}
+        assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+
+
+def test_chat_tool_result_continuation_and_choice_none():
+    upstream = FakeUpstream()
+    messages = [
+        {"role": "user", "content": "北京天气怎么样"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": '{"city":"北京"}'}}]},
+        {"role": "tool", "tool_call_id": "call_1", "content": '{"temperature":25}'},
+    ]
+    with TestClient(make_app(upstream)) as client:
+        response = request(client, messages=messages, tools=[WEATHER_TOOL])
+        assert response.status_code == 200
+        assert response.json()["choices"][0]["message"]["content"] == "你好"
+        assert [item["role"] for item in upstream.payload["messages"][1:]] == ["user", "assistant", "user"]
+        assert "工具结果 tool_call_id=call_1" in upstream.payload["messages"][-1]["parts"][0]["text"]
+        ignored = request(client, messages=[{"role": "user", "content": "你好"}], tools=[WEATHER_TOOL], tool_choice="none")
+        assert ignored.status_code == 200
+        assert len(upstream.payload["messages"]) == 1
+
+
+def test_invalid_tools():
+    with TestClient(make_app()) as client:
+        duplicate = request(client, tools=[WEATHER_TOOL, WEATHER_TOOL])
+        assert duplicate.status_code == 400
+        missing_tool_id = request(client, messages=[{"role": "tool", "content": "结果"}], tools=[WEATHER_TOOL])
+        assert missing_tool_id.status_code == 400
+
+
+def responses_tool_request(client, values=None):
+    tool = {"type": "function", "name": "get_weather", "description": "查询城市天气", "parameters": WEATHER_TOOL["function"]["parameters"]}
+    body = {"model": "mercury-3", "input": "北京天气怎么样", "tools": [tool], **(values or {})}
+    return client.post("/v1/responses", headers={"Authorization": "Bearer test-key"}, json=body)
+
+
+def test_responses_tool_call_and_continuation():
+    upstream = FakeUpstream([event("text-delta", delta=TOOL_OUTPUT), "data: [DONE]\n\n"])
+    with TestClient(make_app(upstream)) as client:
+        response = responses_tool_request(client)
+        assert response.status_code == 200
+        body = response.json()
+        call = body["output"][-1]
+        assert call["type"] == "function_call"
+        assert call["name"] == "get_weather"
+        assert json.loads(call["arguments"]) == {"city": "北京"}
+        upstream.chunks = [event("text-delta", delta="北京今天 25 度"), "data: [DONE]\n\n"]
+        follow = responses_tool_request(client, {"input": [{"type": "function_call_output", "call_id": call["call_id"], "output": "25 度"}], "previous_response_id": body["id"]})
+        assert follow.status_code == 200
+        assert follow.json()["output"][-1]["content"][0]["text"] == "北京今天 25 度"
+        assert upstream.payload["messages"][-1]["parts"][0]["text"].startswith("[工具结果 tool_call_id=")
+
+
+def test_responses_tool_stream_events():
+    upstream = FakeUpstream([event("text-delta", delta=TOOL_OUTPUT), "data: [DONE]\n\n"])
+    with TestClient(make_app(upstream)) as client:
+        response = responses_tool_request(client, {"stream": True})
+        events = [line[7:] for line in response.text.splitlines() if line.startswith("event: ")]
+        assert "response.output_item.added" in events
+        assert "response.function_call_arguments.delta" in events
+        assert "response.function_call_arguments.done" in events
+        assert events[-1] == "response.completed"
+        data = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        completed = data[-1]["response"]
+        assert completed["output"][-1]["type"] == "function_call"
+        assert completed["output"][-1]["name"] == "get_weather"

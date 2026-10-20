@@ -14,9 +14,10 @@ from pydantic import ValidationError
 
 from admin import install_admin
 from generation import Generation, with_heartbeats
-from protocol import ChatRequest, Completion, ProxyError, encode_sse
+from protocol import ChatRequest, Completion, Event, ProxyError, encode_sse
 from responses_api import ResponseBuilder, ResponseRequest
 from storage import Store, TokenCounter
+from tooling import parse_tool_output
 from upstream import BrowserUpstream
 
 
@@ -134,7 +135,10 @@ def create_app(upstream=None, api_key=None, data_dir=None):
             try:
                 async for event in run.iterate():
                     pass
-                body = completion.full(run.text, run.thinking, run.finish_reason)
+                parsed = parse_tool_output(run.text, payload)
+                run.final_content = parsed.content
+                run.tool_calls = parsed.tool_calls
+                body = completion.full(parsed.content, run.thinking, parsed.finish_reason if payload.active_tools else run.finish_reason, [call.chat_dict() for call in parsed.tool_calls])
                 body.update(usage=run.chat_usage(), usage_estimated=True, usage_method="cl100k_base")
                 return body
             except BaseException as exc:
@@ -147,11 +151,28 @@ def create_app(upstream=None, api_key=None, data_dir=None):
             iterator = with_heartbeats(run.iterate())
             try:
                 yield encode_sse(completion.chunk({"role": "assistant", "content": ""}))
-                async for event in iterator:
-                    if event is None:
-                        yield ": 保持连接\n\n"
-                    else:
-                        yield encode_sse(completion.chunk(event.delta or {}, event.finish_reason))
+                if payload.active_tools:
+                    async for event in iterator:
+                        if event is None:
+                            yield ": 保持连接\n\n"
+                    parsed = parse_tool_output(run.text, payload)
+                    run.final_content = parsed.content
+                    run.tool_calls = parsed.tool_calls
+                    if run.thinking:
+                        yield encode_sse(completion.chunk({"reasoning_content": run.thinking}))
+                    if run.final_content:
+                        for start in range(0, len(run.final_content), 64):
+                            yield encode_sse(completion.chunk({"content": run.final_content[start:start + 64]}))
+                    for index, call in enumerate(run.tool_calls):
+                        yield encode_sse(completion.chunk({"tool_calls": [{"index": index, "id": call.id, "type": "function", "function": {"name": call.name, "arguments": ""}}]}))
+                        yield encode_sse(completion.chunk({"tool_calls": [{"index": index, "function": {"arguments": call.arguments}}]}))
+                    yield encode_sse(completion.chunk({}, parsed.finish_reason))
+                else:
+                    async for event in iterator:
+                        if event is None:
+                            yield ": 保持连接\n\n"
+                        else:
+                            yield encode_sse(completion.chunk(event.delta or {}, event.finish_reason))
                 if payload.stream_options and payload.stream_options.include_usage:
                     body = completion.chunk({})
                     body.update(choices=[], usage=run.chat_usage(), usage_estimated=True, usage_method="cl100k_base")
@@ -181,6 +202,9 @@ def create_app(upstream=None, api_key=None, data_dir=None):
             try:
                 async for event in run.iterate():
                     pass
+                parsed = parse_tool_output(run.text, chat_payload)
+                run.final_content = parsed.content
+                run.tool_calls = parsed.tool_calls
                 body = builder.full()
                 if payload.store:
                     app.state.store.save_response(body, builder.history(history))
@@ -196,12 +220,29 @@ def create_app(upstream=None, api_key=None, data_dir=None):
             try:
                 for value in builder.start():
                     yield value
-                async for event in iterator:
-                    if event is None:
-                        yield ": 保持连接\n\n"
-                    else:
-                        for value in builder.delta(event):
+                if chat_payload.active_tools:
+                    async for event in iterator:
+                        if event is None:
+                            yield ": 保持连接\n\n"
+                    parsed = parse_tool_output(run.text, chat_payload)
+                    run.final_content = parsed.content
+                    run.tool_calls = parsed.tool_calls
+                    if run.thinking:
+                        for value in builder.delta(Event(delta={"reasoning_content": run.thinking})):
                             yield value
+                    if run.final_content:
+                        for start in range(0, len(run.final_content), 64):
+                            for value in builder.delta(Event(delta={"content": run.final_content[start:start + 64]})):
+                                yield value
+                    for value in builder.tool_events():
+                        yield value
+                else:
+                    async for event in iterator:
+                        if event is None:
+                            yield ": 保持连接\n\n"
+                        else:
+                            for value in builder.delta(event):
+                                yield value
                 for value in builder.finish():
                     yield value
                 body = builder.full()
@@ -234,7 +275,15 @@ def create_app(upstream=None, api_key=None, data_dir=None):
     async def input_items(response_id: str):
         body, history = app.state.store.response(response_id)
         history = history[:-1] if body["status"] in {"completed", "incomplete"} else history
-        items = [{"id": "item_" + str(index), "type": "message", "role": item["role"], "content": [{"type": "output_text" if item["role"] == "assistant" else "input_text", "text": item["content"]}]} for index, item in enumerate(history)]
+        items = []
+        for index, item in enumerate(history):
+            if item["role"] == "tool":
+                items.append({"id": "item_" + str(index), "type": "function_call_output", "call_id": item.get("tool_call_id"), "output": item.get("content")})
+                continue
+            if item.get("content"):
+                items.append({"id": "item_" + str(index), "type": "message", "role": item["role"], "content": [{"type": "output_text" if item["role"] == "assistant" else "input_text", "text": item["content"]}]})
+            for call_index, call in enumerate(item.get("tool_calls") or []):
+                items.append({"id": "item_" + str(index) + "_" + str(call_index), "type": "function_call", "call_id": call["id"], "name": call["function"]["name"], "arguments": call["function"]["arguments"]})
         return {"object": "list", "data": items, "first_id": items[0]["id"] if items else None, "last_id": items[-1]["id"] if items else None, "has_more": False}
 
     original_openapi = app.openapi
